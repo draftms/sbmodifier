@@ -248,6 +248,12 @@ func TestDataUpdate(t *testing.T){
 			}
 		}
 	}
+
+	/*
+	To-Do
+	1. 완료된 내용 파일로 작성 (modifiedUploadInfoFile_xxx_Completed.dat)
+	2. 총 소요시간 체크
+	*/
 }
 
 func FindDifferentUploadInfoData() {
