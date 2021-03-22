@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"fmt"
+	_"io/fs"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -41,8 +42,26 @@ var clientOptions *options.ClientOptions
 var client *mongo.Client
 var ctx context.Context
 
-func GetHList() *[]string {
-	bytes, err := ioutil.ReadFile("HList.dat")
+func GetIDList() *[]string {
+	files, err := ioutil.ReadDir(".")
+
+	if err != nil {
+		panic(err)
+	}
+	var fileList []string
+
+	for _, file := range files {
+		fileName := file.Name()
+		if strings.Contains(fileName,"_SB.dat") {
+			fileList = append(fileList, file.Name())
+		}
+	}
+
+	return &fileList
+}
+
+func GetDataListInFile(fileName string) *[]string {
+	bytes, err := ioutil.ReadFile(fileName)
 
 	if err != nil {
 		panic(err)
@@ -59,13 +78,13 @@ func TestFindDataToBeMod(t *testing.T){
     collection := client.Database("Dev").Collection("ExpectedStudy")
 
 	//1. Get H name
-	HList := GetHList()
+	HList := GetDataListInFile("HList.dat")
 
 	for _, hosName := range *HList {
 
 		hosName := strings.TrimSpace(hosName)
 
-		needModDatafile, err := os.Create("modifiedUploadInfoFile_"+ hosName +".dat")
+		needModDatafile, err := os.Create("modifiedUploadInfoFile_"+ hosName +"_SB.dat")
 		defer needModDatafile.Close()
 	
 		if err != nil {
@@ -93,6 +112,7 @@ func TestFindDataToBeMod(t *testing.T){
 				fmt.Println("cursor.Next() error :",err)
 				os.Exit(1)
 			} else {
+
 				fmt.Println("result type :", reflect.TypeOf(findResult))
 				fmt.Println("result :", findResult)
 
@@ -130,7 +150,7 @@ func TestFindDataToBeMod(t *testing.T){
 
 				if !haveDCMFile && needChangeUploadInfoData {
 					listCount ++
-					//업데이트 필요 ID를 파일로 저장
+					//Save document id shoud be update
 					fmt.Fprintln(needModDatafile, findResult.ID.Hex())
 					//ioutil.WriteFile("modifiedUploadInfoFile_"+ strings.TrimSpace(hosName) +".dat", []byte(findResult.ID.Hex()), 0777)
 				}
@@ -138,7 +158,9 @@ func TestFindDataToBeMod(t *testing.T){
 		}
 
 		if listCount == 0 {
-			err := os.Remove("modifiedUploadInfoFile_"+ hosName +".dat")
+			needModDatafile.Close()
+
+			err := os.Remove("modifiedUploadInfoFile_"+ hosName +"_SB.dat")
 			
 			if err != nil {
 				panic(err)
@@ -147,6 +169,89 @@ func TestFindDataToBeMod(t *testing.T){
 	}
 
 	client.Disconnect(ctx)
+}
+
+func TestDataUpdate(t *testing.T){
+
+	files := GetIDList()
+
+	if *files == nil {
+		return
+	}
+
+	mongoDBConnect()
+    collection := client.Database("Dev").Collection("ExpectedStudy")		
+
+	for _, fileName := range *files {
+		docList := GetDataListInFile(fileName)
+
+		NextDoc :
+		for _, docID := range *docList {
+
+
+			docID := strings.TrimSpace(docID)
+
+			if docID == "" {
+				continue NextDoc
+			}
+
+			//1. Get document data
+			var findResult ExpectedStudy
+			objectID, _ := primitive.ObjectIDFromHex(docID)
+			err := collection.FindOne(ctx, bson.M{"_id":objectID}).Decode(&findResult)
+
+			if err != nil {
+				fmt.Println(err)
+				continue NextDoc
+			}
+
+			//2. Find newUploadInfoData
+			var prvUploadInfo UploadInfoData
+			var newUploadInfo UploadInfoData
+			
+			for idx, uploadInfoValue := range findResult.UploadInfo {
+				if idx == 0 {
+					prvUploadInfo = uploadInfoValue
+				} else if idx == 1 {
+					if uploadInfoValue.S3Key == prvUploadInfo.S3Key && 
+					uploadInfoValue.Size == prvUploadInfo.Size &&
+					uploadInfoValue.BackupDate == prvUploadInfo.BackupDate {
+
+						newUploadInfo.S3Key = uploadInfoValue.S3Key
+						newUploadInfo.Size = uploadInfoValue.Size
+						newUploadInfo.BackupDate = uploadInfoValue.BackupDate
+						newUploadInfo.SOPCount = uploadInfoValue.SOPCount + prvUploadInfo.SOPCount
+					}
+				}
+			}
+
+			if findResult.UploadInfo == nil {
+				continue NextDoc
+			}
+
+			var uploadInfoDataList []UploadInfoData 
+			uploadInfoDataList = append(uploadInfoDataList, newUploadInfo)
+
+			//3. Update document
+			updateResult, err := collection.UpdateOne(
+				ctx, 
+				bson.M{"_id": findResult.ID},
+				bson.D{
+					{"$set", bson.D{{"uploadInfo",uploadInfoDataList}}},
+				},
+			)
+
+			fmt.Printf("Update %v Document\n", updateResult.ModifiedCount)
+
+			if err != nil {
+				fmt.Println("UpdateErr")
+			}
+		}
+	}
+}
+
+func FindDifferentUploadInfoData() {
+	
 }
 
 func mongoDBConnect(){
