@@ -74,11 +74,14 @@ func GetDataListInFile(fileName string) *[]string {
 
 func TestFindDataToBeMod(t *testing.T){
 	//Find mongoDB data
-	mongoDBConnect() //for local test
-    collection := client.Database(tdatabaseName).Collection(tcollectionName)
-
-	//mongoDBConnectByAuth()	
-	//collection := client.Database(databaseName).Collection(collectionName)
+	var collection *mongo.Collection
+	if testServer {
+		mongoDBConnect() 
+		collection = client.Database(tdatabaseName).Collection(tcollectionName)
+	}else {
+		mongoDBConnectByAuth()	
+		collection = client.Database(databaseName).Collection(collectionName)
+	}
 
 	//1. Get H name
 	HList := GetDataListInFile("HList.dat")
@@ -96,7 +99,20 @@ func TestFindDataToBeMod(t *testing.T){
 		}
 
 		//findResultCursor, err := collection.Find(ctx, bson.D{})
-		findResultCursor, err := collection.Find(ctx, bson.M{"h":hosName, "sD":bson.M{"$gte":"20210301","$lte":"20210331"}, "uploadInfo":bson.M{"$size":2}})
+		findResultCursor, err := collection.Find(ctx, 
+			bson.M{
+				"h":hosName, 
+				"sD":bson.M{
+					"$gte":"20210101",
+					"$lte":"20210331"}, 
+				"uploadInfo":bson.M{
+					"$size":2, 
+					"$elemMatch":bson.M{
+						"bD":bson.M{
+							"$gte":"20210301",
+							"$lte":"20210331"}}}})
+
+		//findResultCursor, err := collection.Find(ctx, bson.M{"h":"MEDICHECKSEOBU", "sD":bson.M{"$gte":"20210101","$lte":"20210331"}, "uploadInfo":bson.M{"$size":2}})
 
 		if err != nil {
 			fmt.Println("MongoDB Find Error : ", err)
@@ -182,11 +198,15 @@ func TestDataUpdate(t *testing.T){
 		return
 	}
 
-	//mongoDBConnectByAuth()	
-	//collection := client.Database(databaseName).Collection(collectionName)
-
-	mongoDBConnect()
-    collection := client.Database(tdatabaseName).Collection(tcollectionName)		
+	var collection *mongo.Collection
+	if testServer {
+		mongoDBConnect()
+		collection = client.Database(tdatabaseName).Collection(tcollectionName)	
+	} else 
+	{
+		mongoDBConnectByAuth()	
+		collection = client.Database(databaseName).Collection(collectionName)
+	}
 
 	for _, fileName := range *files {
 
