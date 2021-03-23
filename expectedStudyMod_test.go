@@ -324,7 +324,7 @@ func mongoDBConnectByAuth(){
 
 	credential := options.Credential{
 			//clientOptions.Auth.AuthSource: "",
-			Username:databaseName,
+			Username:databaseUserName,
 			Password:databasePassword,
 	}
 
