@@ -6,7 +6,7 @@ import (
 	_"io/fs"
 	"io/ioutil"
 	"os"
-	"reflect"
+	_"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -74,8 +74,11 @@ func GetDataListInFile(fileName string) *[]string {
 
 func TestFindDataToBeMod(t *testing.T){
 	//Find mongoDB data
-	mongoDBConnect()
-    collection := client.Database("Dev").Collection("ExpectedStudy")
+	mongoDBConnect() //for local test
+    collection := client.Database(tdatabaseName).Collection(tcollectionName)
+
+	//mongoDBConnectByAuth()	
+	//collection := client.Database(databaseName).Collection(collectionName)
 
 	//1. Get H name
 	HList := GetDataListInFile("HList.dat")
@@ -84,8 +87,8 @@ func TestFindDataToBeMod(t *testing.T){
 
 		hosName := strings.TrimSpace(hosName)
 
-		needModDatafile, err := os.Create("modifiedUploadInfoFile_"+ hosName +"_SB.dat")
-		defer needModDatafile.Close()
+		needModDatafile, err := os.Create(hosName + "_HaveToChangeUploadInfoFile_SB.dat")
+		//defer needModDatafile.Close()
 	
 		if err != nil {
 			fmt.Println(err)
@@ -113,8 +116,8 @@ func TestFindDataToBeMod(t *testing.T){
 				os.Exit(1)
 			} else {
 
-				fmt.Println("result type :", reflect.TypeOf(findResult))
-				fmt.Println("result :", findResult)
+				//fmt.Println("result type :", reflect.TypeOf(findResult))
+				//fmt.Println("result :", findResult)
 
 				haveDCMFile,  needChangeUploadInfoData := false, false
 
@@ -160,7 +163,7 @@ func TestFindDataToBeMod(t *testing.T){
 		if listCount == 0 {
 			needModDatafile.Close()
 
-			err := os.Remove("modifiedUploadInfoFile_"+ hosName +"_SB.dat")
+			err := os.Remove(hosName + "_HaveToChangeUploadInfoFile_SB.dat")
 			
 			if err != nil {
 				panic(err)
@@ -179,11 +182,24 @@ func TestDataUpdate(t *testing.T){
 		return
 	}
 
+	//mongoDBConnectByAuth()	
+	//collection := client.Database(databaseName).Collection(collectionName)
+
 	mongoDBConnect()
-    collection := client.Database("Dev").Collection("ExpectedStudy")		
+    collection := client.Database(tdatabaseName).Collection(tcollectionName)		
 
 	for _, fileName := range *files {
+
+		hosName := strings.Split(fileName, "_")[0]
+		completedModDatafile, err := os.Create(hosName + "_HaveToChangeUploadInfoFile_CP.dat")
+		defer completedModDatafile.Close()
+
 		docList := GetDataListInFile(fileName)
+
+		if err != nil {
+			fmt.Println(err)
+			return
+		}		
 
 		NextDoc :
 		for _, docID := range *docList {
@@ -208,6 +224,7 @@ func TestDataUpdate(t *testing.T){
 			//2. Find newUploadInfoData
 			var prvUploadInfo UploadInfoData
 			var newUploadInfo UploadInfoData
+			var needChange bool
 			
 			for idx, uploadInfoValue := range findResult.UploadInfo {
 				if idx == 0 {
@@ -221,11 +238,18 @@ func TestDataUpdate(t *testing.T){
 						newUploadInfo.Size = uploadInfoValue.Size
 						newUploadInfo.BackupDate = uploadInfoValue.BackupDate
 						newUploadInfo.SOPCount = uploadInfoValue.SOPCount + prvUploadInfo.SOPCount
+						needChange = true
 					}
 				}
 			}
 
-			if findResult.UploadInfo == nil {
+			if findResult.UploadInfo == nil && !needChange {
+				err := os.Remove(hosName + "_HaveToChangeUploadInfoFile_CP.dat")
+			
+				if err != nil {
+					panic(err)
+				}
+
 				continue NextDoc
 			}
 
@@ -242,6 +266,7 @@ func TestDataUpdate(t *testing.T){
 			)
 
 			fmt.Printf("Update %v Document\n", updateResult.ModifiedCount)
+			fmt.Fprintln(completedModDatafile, findResult.ID.Hex())
 
 			if err != nil {
 				fmt.Println("UpdateErr")
@@ -251,19 +276,15 @@ func TestDataUpdate(t *testing.T){
 
 	/*
 	To-Do
-	1. 완료된 내용 파일로 작성 (modifiedUploadInfoFile_xxx_Completed.dat)
-	2. 총 소요시간 체크
+	1. 완료된 내용 파일로 작성 (modifiedUploadInfoFile_xxx_Completed.dat) (OK)
+	2. 총 소요시간 체크 후 goroutin으로 분리
 	*/
 }
 
-func FindDifferentUploadInfoData() {
-	
-}
-
 func mongoDBConnect(){
-	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 
-    clientOptions = options.Client().ApplyURI("mongodb://localhost:27017")
+    clientOptions = options.Client().ApplyURI(tconnectionAddress)
 
 	var err error
     client, err = mongo.Connect(ctx, clientOptions)
@@ -271,7 +292,30 @@ func mongoDBConnect(){
     if err != nil { 
 		fmt.Println("MongoDB Connection Error : ", err)
     }
+    err = client.Ping(ctx, nil)
 
+    if err != nil {
+        fmt.Println("MongoDB Ping Error : ", err)
+    }
+}
+
+func mongoDBConnectByAuth(){
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+
+	credential := options.Credential{
+			//clientOptions.Auth.AuthSource: "",
+			Username:databaseName,
+			Password:databasePassword,
+	}
+
+    clientOptions = options.Client().ApplyURI(connectionAddress).SetAuth(credential)
+
+	var err error
+    client, err = mongo.Connect(ctx, clientOptions)
+
+    if err != nil { 
+		fmt.Println("MongoDB Connection Error : ", err)
+    }
     err = client.Ping(ctx, nil)
 
     if err != nil {
